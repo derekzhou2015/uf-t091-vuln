@@ -9,6 +9,7 @@ import (
 	"context"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -297,17 +298,43 @@ func fixNegated(fix string, affected []osv.Affected) bool {
 }
 
 func modPath(mod *packages.Module) string {
-	if mod.Replace != nil {
+	// A filesystem (local directory) replacement keeps the original module
+	// identity: mod.Replace.Path is a local directory rather than a module
+	// path, and mod.Replace.Version is empty even when the go.mod replace
+	// directive pins a version. Vulnerability matching therefore has to fall
+	// back to the replaced module's own path.
+	if mod.Replace != nil && !isLocalReplace(mod.Replace) {
 		return mod.Replace.Path
 	}
 	return mod.Path
 }
 
 func modVersion(mod *packages.Module) string {
-	if mod.Replace != nil {
+	// For a filesystem replacement, the local module carries no version
+	// (mod.Replace.Version is empty); fall back to the version declared on
+	// the replaced module in go.mod so explicitly versioned local replaces
+	// are not silently treated as versionless and skipped.
+	if mod.Replace != nil && mod.Replace.Version != "" {
 		return mod.Replace.Version
 	}
 	return mod.Version
+}
+
+// isLocalReplace reports whether replacement is a local directory replacement
+// rather than a replacement by another (versioned) module. The go command
+// represents a local replacement with an empty version; its path is either an
+// absolute filesystem path or a relative path beginning with "." or "..".
+func isLocalReplace(replacement *packages.Module) bool {
+	if replacement == nil {
+		return false
+	}
+	if replacement.Version != "" {
+		return false
+	}
+	return replacement.Path == "." ||
+		strings.HasPrefix(replacement.Path, "./") ||
+		strings.HasPrefix(replacement.Path, "../") ||
+		filepath.IsAbs(replacement.Path)
 }
 
 // pkgPath returns the path of the f's enclosing package, if any.

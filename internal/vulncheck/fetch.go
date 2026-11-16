@@ -17,7 +17,11 @@ func FetchVulnerabilities(ctx context.Context, c *client.Client, modules []*pack
 	mreqs := make([]*client.ModuleRequest, len(modules))
 	for i, mod := range modules {
 		modPath := mod.Path
-		if mod.Replace != nil {
+		// For a local directory replacement, mod.Replace.Path is a filesystem
+		// path that can never be a module path in the vulnerability database.
+		// Query using the replaced module's own path instead so advisories for
+		// it are not silently missed.
+		if mod.Replace != nil && !isLocalReplace(mod.Replace) {
 			modPath = mod.Replace.Path
 		}
 		mreqs[i] = &client.ModuleRequest{

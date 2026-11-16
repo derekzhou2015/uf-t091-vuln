@@ -127,10 +127,10 @@ func affectingVulnerabilities(vulns []*ModVulns, os, arch string) affectingVulns
 	var filtered affectingVulns
 	for _, mod := range vulns {
 		module := mod.Module
-		modVersion := module.Version
-		if module.Replace != nil {
-			modVersion = module.Replace.Version
-		}
+		// modVersion falls back to the go.mod-declared version when the
+		// replacement is a versionless local directory, so explicitly
+		// versioned filesystem replaces are not silently skipped.
+		modVersion := modVersion(module)
 		// TODO(https://golang.org/issues/49264): if modVersion == "", try vcs?
 		var filteredVulns []*osv.Entry
 		for _, v := range mod.Vulns {
@@ -268,8 +268,11 @@ func (aff affectingVulns) ForPackage(module, importPath string) []*osv.Entry {
 		return nil
 	}
 
-	if mod.Module.Replace != nil {
-		// standard libraries do not have a module nor replace module
+	if mod.Module.Replace != nil && !isLocalReplace(mod.Module.Replace) {
+		// standard libraries do not have a module nor replace module.
+		// For a local directory replacement the import path is unchanged, so
+		// rewriting it against the filesystem path would never match an
+		// advisory package path and would silently drop every finding.
 		importPath = fmt.Sprintf("%s%s", mod.Module.Replace.Path, strings.TrimPrefix(importPath, mod.Module.Path))
 	}
 	vulns := mod.Vulns
